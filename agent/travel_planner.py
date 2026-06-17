@@ -47,7 +47,7 @@ class TravelPlannerAgent(BaseAgent):
 
     def __init__(
         self,
-        model_name: str = "gpt-4o-mini",
+        model_name: str = "us/azure/openai/eccn-gpt-5-mini",
         temperature: float = 0.0,
         max_steps: int = 30,
         db_path: str = None,
@@ -81,12 +81,8 @@ class TravelPlannerAgent(BaseAgent):
             from env.env_systems.travel_planner_env.clients.gemini_client import GeminiClient
             return GeminiClient(model_name=model_name)
         elif "claude" in model_lower or "anthropic" in model_lower:
-            if os.environ.get("OPENAI_API_BASE"):
-                from env.env_systems.travel_planner_env.clients.openai_client import OpenAIClient
-                return OpenAIClient(model_name=model_name)
-            else:
-                from env.env_systems.travel_planner_env.clients.anthropic_client import AnthropicClient
-                return AnthropicClient(model_name=model_name)
+            from env.env_systems.travel_planner_env.clients.anthropic_client import AnthropicClient
+            return AnthropicClient(model_name=model_name)
         else:
             from env.env_systems.travel_planner_env.clients.openai_client import OpenAIClient
             return OpenAIClient(model_name=model_name)

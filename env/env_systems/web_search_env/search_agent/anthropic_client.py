@@ -184,7 +184,8 @@ def main(args):
     if not api_key:
         raise RuntimeError("ANTHROPIC_API_KEY is not set in environment or .env file")
 
-    client = Anthropic(api_key=api_key, timeout=1200)
+    base_url = os.getenv("ANTHROPIC_BASE_URL")
+    client = Anthropic(api_key=api_key, base_url=base_url, timeout=1200)
 
     if isinstance(args.query, str):
         qstr = args.query.strip()

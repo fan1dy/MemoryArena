@@ -15,15 +15,23 @@ from ..cost_tracker import CostTracker
 
 class OpenAIClient(BaseModelClient):
     """
-    OpenAI client with Tools API support.
+    OpenAI-compatible client. Defaults to the NVIDIA inference endpoint.
     """
-    
-    def __init__(self, model_name: str = "gpt-4o-mini", api_key: str = None, base_url: str = None):
+
+    def __init__(self, model_name: str = "meta/llama-3.1-8b-instruct", api_key: str = None, base_url: str = None):
         super().__init__(model_name)
-        self.client = OpenAI(
-            api_key=api_key or os.environ.get("OPENAI_API_KEY"),
-            base_url=base_url or os.environ.get("OPENAI_API_BASE"),
+        resolved_key = (
+            api_key
+            or os.environ.get("NVIDIA_API_KEY")
+            or os.environ.get("OPENAI_API_KEY")
         )
+        resolved_url = (
+            base_url
+            or os.environ.get("OPENAI_BASE_URL")
+            or os.environ.get("OPENAI_API_BASE")
+            or "https://inference-api.nvidia.com/v1"
+        )
+        self.client = OpenAI(api_key=resolved_key, base_url=resolved_url)
         self.cost_tracker = CostTracker(model_name)
     
     def chat_with_tools(
@@ -37,26 +45,20 @@ class OpenAIClient(BaseModelClient):
         Send messages to OpenAI with tools enabled.
         """
         try:
-            if self.model_name.startswith('gpt-5'):
-                # gpt-5 系列: 用 max_completion_tokens, 不传 temperature
-                response = self.client.chat.completions.create(
-                    model=self.model_name,
-                    messages=messages,
-                    tools=tools if tools else None,
-                    tool_choice="auto" if tools else None,
-                    max_completion_tokens=max_tokens
-                )
-            else:
-                # gpt-4 / Claude / 其他: 用 temperature + max_tokens
-                response = self.client.chat.completions.create(
-                    model=self.model_name,
-                    messages=messages,
-                    tools=tools if tools else None,
-                    tool_choice="auto" if tools else None,
-                    temperature=temperature,
-                    max_tokens=max_tokens
-                )
-            
+            kwargs = dict(
+                model=self.model_name,
+                messages=messages,
+                tools=tools if tools else None,
+                tool_choice="auto" if tools else None,
+                temperature=temperature,
+                max_tokens=max_tokens,
+            )
+            # gpt-5 series requires max_completion_tokens and no temperature
+            if self.model_name.startswith("gpt-5"):
+                kwargs.pop("temperature")
+                kwargs["max_completion_tokens"] = kwargs.pop("max_tokens")
+            response = self.client.chat.completions.create(**kwargs)
+
             # Track usage
             if response.usage:
                 self.total_input_tokens += response.usage.prompt_tokens

@@ -30,7 +30,7 @@ class LightMemMemorySystem:
             os.makedirs(run_log_dir, exist_ok=True)
 
             api_key = os.getenv("OPENAI_API_KEY")
-            api_base_url = "https://api.openai.com/v1"
+            api_base_url = os.getenv("OPENAI_BASE_URL", "https://inference.nvidia.com/v1")
             llm_model = "gpt-4.1-mini"
             embedding_model_path = "sentence-transformers/all-MiniLM-L6-v2"
             llmlingua_model_path = "microsoft/llmlingua-2-bert-base-multilingual-cased-meetingbank"

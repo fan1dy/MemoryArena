@@ -2,7 +2,7 @@
   "task_name": "shopping",
 
   "agent": {
-    "model_name": "us/azure/openai/eccn-gpt-5-mini",
+    "model_name": "nvidia/nvidia/eccn-nemotron-3-ultra",
     "temperature": 1.0,
     "max_tokens": 4096,
     "backend": "openai",
@@ -49,7 +49,7 @@
   },
 
   "output": {
-    "output_dir": "results/shopping/long_context/gpt-5-mini",
+    "output_dir": "results/shopping/long_context/nemotron-3-ultra",
     "save_trajectories": true,
     "save_metrics": true,
     "save_interactions": true

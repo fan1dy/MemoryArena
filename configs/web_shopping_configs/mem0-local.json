@@ -8,11 +8,11 @@
     "backend": "openai",
     "api_key": "",
     "base_url": "https://inference-api.nvidia.com/v1"
-    },
+  },
 
   "memory": {
     "use_step_memory": false,
-    "memory_system_name": "long_context",
+    "memory_system_name": "mem0-local",
     "server_url": "http://0.0.0.0:8000",
     "timeout": 300
   },
@@ -30,7 +30,7 @@
       "upstream_limit_goals": -1,
       "upstream_ready_timeout": 6000,
       "reuse_env": true,
-      "env_id_cache_file": "/Users/dongyangf/nemotron/agentic-mem/MemoryArena/.env_id_cache_{port}_memoryarena_shopping.json",
+      "env_id_cache_file": ".env_id_cache_{port}_memoryarena_shopping.json",
       "clear_env_id_cache_on_restart": true,
       "clear_python_cache_on_restart": false,
       "upstream_log_file": "logs/upstream_webshop_{port}.log",
@@ -49,7 +49,7 @@
   },
 
   "output": {
-    "output_dir": "results/shopping/long_context/gpt-5-mini",
+    "output_dir": "results/shopping",
     "save_trajectories": true,
     "save_metrics": true,
     "save_interactions": true

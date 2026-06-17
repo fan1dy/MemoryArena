@@ -82,25 +82,27 @@ class OpenAIBackend(LLMBackend):
 
 
 class AnthropicBackend(LLMBackend):
-    """Anthropic Claude backend."""
-    
+    """Anthropic Claude backend routed through an OpenAI-compatible endpoint (NVIDIA NIM)."""
+
     def __init__(
         self,
         model_name: str = "claude-3-5-sonnet-20241022",
         temperature: float = 0.0,
         max_tokens: int = 2000,
-        api_key: Optional[str] = None
+        api_key: Optional[str] = None,
+        base_url: Optional[str] = None
     ):
-        if not ANTHROPIC_AVAILABLE:
-            raise ImportError("anthropic package is required. Install with: pip install anthropic")
-        
-        self.client = anthropic.Anthropic(
-            api_key=api_key if api_key else os.getenv("ANTHROPIC_API_KEY")
-        )
+        if not OPENAI_AVAILABLE:
+            raise ImportError("openai package is required. Install with: pip install openai")
+
+        resolved_key = api_key or os.getenv("ANTHROPIC_API_KEY") or os.getenv("OPENAI_API_KEY")
+        resolved_url = base_url or os.getenv("ANTHROPIC_BASE_URL") or os.getenv("OPENAI_BASE_URL", "https://inference.nvidia.com/v1")
+
+        self.client = OpenAI(api_key=resolved_key, base_url=resolved_url)
         self.model_name = model_name
         self.max_tokens = max_tokens
         self.temperature = temperature
-    
+
     def chat(
         self,
         messages: List[Dict[str, str]],
@@ -108,19 +110,14 @@ class AnthropicBackend(LLMBackend):
         max_tokens: Optional[int] = None,
         **kwargs
     ) -> str:
-        # Convert OpenAI-style messages to Anthropic format
-        system_message = messages[0]['content'] if messages[0]['role'] == "system" else "You are a helpful assistant."
-        user_messages = messages[1:] if messages[0]['role'] == "system" else messages
-        
-        response = self.client.messages.create(
+        response = self.client.chat.completions.create(
             model=self.model_name,
-            max_tokens=max_tokens if max_tokens is not None else self.max_tokens,
-            system=system_message,
-            messages=user_messages,
+            messages=messages,
             temperature=temperature if temperature is not None else self.temperature,
+            max_tokens=max_tokens if max_tokens is not None else self.max_tokens,
             **kwargs
         )
-        return response.content[0].text.strip()
+        return response.choices[0].message.content.strip()
 
 
 class OpenRouterBackend(LLMBackend):

@@ -14,6 +14,15 @@ from typing import Any, Dict, List, Optional, Tuple
 import requests
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
+from dotenv import load_dotenv
+
+load_dotenv()
+# Ensure JAVA_HOME/bin is on PATH if set via .env
+_java_home = os.environ.get("JAVA_HOME")
+if _java_home:
+    _java_bin = os.path.join(_java_home, "bin")
+    if _java_bin not in os.environ.get("PATH", ""):
+        os.environ["PATH"] = _java_bin + os.pathsep + os.environ.get("PATH", "")
 
 try:
     import tiktoken

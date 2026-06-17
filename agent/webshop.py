@@ -136,11 +136,23 @@ class WebShopAgent(BaseAgent):
         for attempt in range(1, max_retries + 1):
             try:
                 response = self.client.chat.completions.create(**params)
+                # openai v2: returns response.text (str) when the endpoint's
+                # Content-Type isn't application/json and the body isn't valid
+                # JSON — typically an error page or wrong base_url.
+                if isinstance(response, str):
+                    snippet = response[:300].replace("\n", " ")
+                    raise LLMFatalError(
+                        f"LLM endpoint returned plain text instead of a JSON ChatCompletion "
+                        f"(Content-Type was not application/json). Check base_url={self.base_url!r}. "
+                        f"Response snippet: {snippet!r}"
+                    )
                 message = response.choices[0].message
                 raw_text = message.content or ""
                 self._last_raw_output = raw_text
                 self._last_reasoning_content = getattr(message, "reasoning_content", None)
                 return raw_text
+            except LLMFatalError:
+                raise
             except Exception as exc:
                 if _is_billing_error(exc):
                     raise LLMFatalError(

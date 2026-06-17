@@ -7,17 +7,19 @@ import uvicorn
 from dotenv import load_dotenv
 
 from memory_systems import (
-    LongContextMemorySystem, 
-    MirixMemorySystem, 
-    Mem0MemorySystem, 
-    LettaMemorySystem, 
-    RAGMemorySystem, 
+    LongContextMemorySystem,
+    MirixMemorySystem,
+    Mem0MemorySystem,
+    LettaMemorySystem,
+    RAGMemorySystem,
     MemoRAGMemorySystem,
     GraphRAGMemorySystem,
     AMemMemorySystem,
     LightMemMemorySystem,
     ReasoningBankMemorySystem,
     ZepMemorySystem,
+    Mem0LocalMemorySystem,
+    LettaLocalMemorySystem,
 )
 
 
@@ -46,19 +48,25 @@ class ActRequest(BaseModel):
     memory_system_name: str
 
 # ---------- Memory/Agent implementations (unified) ----------
-MEMORY_FACTORIES: Dict[str, Callable[[], object]] = {
+_ALL_FACTORIES = {
     "mirix": MirixMemorySystem,
     "long_context": LongContextMemorySystem,
     "mem0": Mem0MemorySystem,
-    "mem0-g": lambda: Mem0MemorySystem(enable_graph=True),
+    "mem0-g": lambda: Mem0MemorySystem(enable_graph=True) if Mem0MemorySystem else None,
+    "mem0-local": Mem0LocalMemorySystem,
+    "mem0-local-g": lambda: Mem0LocalMemorySystem(enable_graph=True) if Mem0LocalMemorySystem else None,
     "letta": LettaMemorySystem,
+    "letta-local": LettaLocalMemorySystem,
     "rag": RAGMemorySystem,
     "memorag": MemoRAGMemorySystem,
     "graphrag": GraphRAGMemorySystem,
     "amem": AMemMemorySystem,
     "lightmem": LightMemMemorySystem,
-    "reasoningbank": ReasoningBankMemorySystem, # You must add user_id when initializing ReasoningBankMemorySystem
+    "reasoningbank": ReasoningBankMemorySystem,
     "zep": ZepMemorySystem,
+}
+MEMORY_FACTORIES: Dict[str, Callable[[], object]] = {
+    k: v for k, v in _ALL_FACTORIES.items() if v is not None
 }
 
 

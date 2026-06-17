@@ -338,7 +338,7 @@ def create_attribute_judge(
         raise ImportError("openai package required for LLM judge. pip install openai")
 
     api_key = _load_env_value("OPENAI_API_KEY", env_path)
-    base_url = _load_env_value("OPENAI_BASE_URL", env_path) or "https://api.openai.com/v1"
+    base_url = _load_env_value("OPENAI_BASE_URL", env_path) or "https://inference.nvidia.com/v1"
     if api_key:
         client = OpenAI(api_key=api_key, base_url=base_url)
         return AttributeJudge(

@@ -1,0 +1,87 @@
+import os
+from typing import Optional
+from dotenv import load_dotenv
+
+load_dotenv(os.path.join(os.path.dirname(__file__), "..", ".env"))
+
+from letta_client import Letta
+
+
+class LettaLocalMemorySystem:
+    """
+    Local deployment of Letta (https://github.com/letta-ai/letta).
+    Connects to a self-hosted Letta server instead of the cloud API.
+
+    Prerequisites:
+        pip install letta
+        letta server          # starts on http://localhost:8283 by default
+
+    To use a custom LLM/embedding backend, run `letta configure` before
+    starting the server and set LETTA_LLM_ENDPOINT / LETTA_EMBEDDING_ENDPOINT
+    in .env.
+    """
+
+    def __init__(
+        self,
+        user_id: Optional[str] = None,
+        base_url: str = "http://localhost:8283",
+        model: str = "openai/gpt-4.1-mini",
+        embedding: str = "openai/text-embedding-3-small",
+    ):
+        self.client = Letta(base_url=base_url)
+        self.agent_state = self.client.agents.create(
+            model=model,
+            embedding=embedding,
+            memory_blocks=[
+                {"label": "human", "value": ""},
+                {"label": "persona", "value": "I am a self-improving superintelligence."},
+            ],
+            tools=[],
+        )
+
+    def add_chunk(self, chunk: str):
+        response = self.client.agents.messages.create(
+            agent_id=self.agent_state.id,
+            input="Remember this:\n" + chunk,
+        )
+
+        parsed_messages = []
+        if hasattr(response, "messages"):
+            for message in response.messages:
+                if getattr(message, "message_type", None) == "tool_call_message":
+                    tool_calls = getattr(message, "tool_calls", None) or []
+                    if not tool_calls and hasattr(message, "tool_call"):
+                        tool_calls = [message.tool_call]
+                    for tool_call in tool_calls:
+                        parsed_messages.append({
+                            "type": "tool_call",
+                            "name": tool_call.name,
+                            "arguments": tool_call.arguments,
+                        })
+                elif getattr(message, "message_type", None) == "assistant_message":
+                    parsed_messages.append({
+                        "type": "text",
+                        "content": message.content,
+                    })
+
+        return parsed_messages if parsed_messages else None
+
+    def wrap_user_prompt(self, prompt: str):
+        response = self.client.agents.messages.create(
+            agent_id=self.agent_state.id,
+            input=(
+                "This is the user's prompt: " + prompt
+                + "\n\nRetrieve the most relevant information from your memory and return it in text format."
+            ),
+        )
+
+        memory_context_lines = ["<memory_context>"]
+        for message in response.messages:
+            try:
+                memory_context_lines.append(message.content)
+            except Exception as e:
+                print("Error in message:", message)
+                continue
+        memory_context_lines.append("</memory_context>")
+        memory_context_lines.append(f"User: {prompt}")
+        return "\n".join(memory_context_lines)

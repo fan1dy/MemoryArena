@@ -22,3 +22,4 @@ results/
 logs/
 data/
 hf_task_cache/
+.env

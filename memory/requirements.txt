@@ -3,6 +3,8 @@ uvicorn
 tiktoken
 mirix
 mem0ai
+qdrant-client
+fastembed
 letta-client
 # MemoRAG
 semantic_text_splitter
