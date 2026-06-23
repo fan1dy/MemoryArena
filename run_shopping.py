@@ -4,6 +4,7 @@ import argparse
 import json
 import logging
 import os
+import threading
 import time
 import traceback
 import uuid
@@ -58,6 +59,7 @@ from memory.client import MemoryClient
 DEFAULT_CONFIG = MEMORYARENA_ROOT / "configs/web_shopping_configs/shopping_task.json"
 
 logger = logging.getLogger("run_shopping")
+_upstream_bootstrap_lock = threading.Lock()
 
 
 def _setup_file_logger(log_path: Path) -> None:
@@ -304,6 +306,7 @@ def load_config(config_path: Path) -> argparse.Namespace:
         split_steps=_as_bool(task_cfg.get("split_steps"), True),
         resume=_as_bool(task_cfg.get("resume"), True),
         include_history=_as_bool(task_cfg.get("include_history"), False),
+        workers=int(task_cfg.get("workers", 1)),
         output_dir=output_cfg.get("output_dir", "results/shopping"),
         save_trajectories=_as_bool(output_cfg.get("save_trajectories"), True),
         save_metrics=_as_bool(output_cfg.get("save_metrics"), True),
@@ -354,6 +357,8 @@ def apply_overrides(args: argparse.Namespace, overrides: argparse.Namespace) -> 
         args.split_steps = overrides.split_steps
     if getattr(overrides, "include_history", None) is not None:
         args.include_history = overrides.include_history
+    if getattr(overrides, "workers", None) is not None:
+        args.workers = overrides.workers
     if getattr(overrides, "bootstrap_upstream_env", None) is not None:
         args.bootstrap_upstream_env = overrides.bootstrap_upstream_env
     if getattr(overrides, "restart_upstream_env", None) is not None:
@@ -405,27 +410,30 @@ def ensure_upstream_bootstrap(args: argparse.Namespace) -> None:
         return
     if getattr(args, "_upstream_bootstrap_done", False):
         return
-    result = ensure_upstream_webshop_service(
-        base_url=args.upstream_env_server_base,
-        repo_root=MEMORYARENA_ROOT,
-        reuse_env=args.reuse_env,
-        cache_file=args.env_id_cache_file,
-        restart=args.restart_upstream_env,
-        python_executable=args.upstream_python_executable,
-        launch_module=args.upstream_launch_module,
-        limit_goals=args.upstream_limit_goals,
-        ready_timeout_seconds=args.upstream_ready_timeout,
-        clear_env_id_cache_on_restart=args.clear_env_id_cache_on_restart,
-        clear_python_cache_on_restart=args.clear_python_cache_on_restart,
-        log_file=args.upstream_log_file,
-        env_overrides={
-            "MEMORYARENA_WEBSHOP_DATA_ROOT": str(resolve_path(args.upstream_webshop_data_root) or args.upstream_webshop_data_root),
-            "MEMORYARENA_WEBSHOP_ITEMS_FILE": str(MEMORYARENA_ROOT / "data" / "shopping" / "items_shuffle.json"),
-            "MEMORYARENA_WEBSHOP_SEARCH_ROOT": str(MEMORYARENA_ROOT / "data" / "shopping" / "search_engine"),
-        },
-    )
-    args._upstream_bootstrap_done = True
-    args._upstream_bootstrap_result = result
+    with _upstream_bootstrap_lock:
+        if getattr(args, "_upstream_bootstrap_done", False):
+            return
+        result = ensure_upstream_webshop_service(
+            base_url=args.upstream_env_server_base,
+            repo_root=MEMORYARENA_ROOT,
+            reuse_env=args.reuse_env,
+            cache_file=args.env_id_cache_file,
+            restart=args.restart_upstream_env,
+            python_executable=args.upstream_python_executable,
+            launch_module=args.upstream_launch_module,
+            limit_goals=args.upstream_limit_goals,
+            ready_timeout_seconds=args.upstream_ready_timeout,
+            clear_env_id_cache_on_restart=args.clear_env_id_cache_on_restart,
+            clear_python_cache_on_restart=args.clear_python_cache_on_restart,
+            log_file=args.upstream_log_file,
+            env_overrides={
+                "MEMORYARENA_WEBSHOP_DATA_ROOT": str(resolve_path(args.upstream_webshop_data_root) or args.upstream_webshop_data_root),
+                "MEMORYARENA_WEBSHOP_ITEMS_FILE": str(MEMORYARENA_ROOT / "data" / "shopping" / "items_shuffle.json"),
+                "MEMORYARENA_WEBSHOP_SEARCH_ROOT": str(MEMORYARENA_ROOT / "data" / "shopping" / "search_engine"),
+            },
+        )
+        args._upstream_bootstrap_done = True
+        args._upstream_bootstrap_result = result
 
 
 def build_env_config(args: argparse.Namespace, task_file: Path) -> Dict[str, Any]:
@@ -1313,8 +1321,8 @@ def main() -> None:
     parser.add_argument("--restart-upstream-env", action=argparse.BooleanOptionalAction, default=None)
     parser.add_argument("--clear-env-id-cache-on-restart", action=argparse.BooleanOptionalAction, default=None)
     parser.add_argument("--clear-python-cache-on-restart", action=argparse.BooleanOptionalAction, default=None)
-    parser.add_argument("--workers", type=int, default=1,
-                        help="Number of task files to process in parallel (default: 1)")
+    parser.add_argument("--workers", type=int, default=None,
+                        help="Number of task files to process in parallel (default: from config, else 1)")
     raw_args = parser.parse_args()
 
     args = load_config(resolve_path(raw_args.config) or Path(raw_args.config))
@@ -1335,7 +1343,7 @@ def main() -> None:
             )
             ensure_upstream_bootstrap(args)
 
-        logger.info("=== category: %s | %d task(s) | workers=%d ===", category, len(task_files), raw_args.workers)
+        logger.info("=== category: %s | %d task(s) | workers=%d ===", category, len(task_files), args.workers)
         cat_results: List[Dict[str, Any]] = []
 
         def _run_task(task_file: Path) -> Dict[str, Any]:
@@ -1344,7 +1352,7 @@ def main() -> None:
             logger.info("task %s done: overall_success=%s", task_file.name, result.get("overall_success"))
             return result
 
-        if raw_args.workers <= 1:
+        if args.workers <= 1:
             for task_file in task_files:
                 try:
                     result = _run_task(task_file)
@@ -1356,7 +1364,7 @@ def main() -> None:
                 cat_results.append(result)
                 all_results.append(result)
         else:
-            with ThreadPoolExecutor(max_workers=raw_args.workers) as pool:
+            with ThreadPoolExecutor(max_workers=args.workers) as pool:
                 future_to_file = {pool.submit(_run_task, tf): tf for tf in task_files}
                 for future in as_completed(future_to_file):
                     tf = future_to_file[future]

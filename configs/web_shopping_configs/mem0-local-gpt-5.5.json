@@ -45,7 +45,8 @@
     "max_steps": 20,
     "split_steps": true,
     "resume": true,
-    "include_history": false
+    "include_history": false,
+    "workers": 4
   },
 
   "output": {
