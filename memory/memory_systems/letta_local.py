@@ -4,7 +4,14 @@ from dotenv import load_dotenv
 
 load_dotenv(os.path.join(os.path.dirname(__file__), "..", ".env"))
 
-from letta_client import Letta
+from letta_client import Letta, LLMConfig, EmbeddingConfig
+
+_DEFAULT_BASE_URL = "http://localhost:8283"
+_DEFAULT_MODEL = "us/azure/openai/eccn-gpt-5-mini"
+_DEFAULT_EMBEDDING = "us/azure/openai/eccn-text-embedding-3-small"
+_DEFAULT_LLM_ENDPOINT = "https://inference-api.nvidia.com/v1"
+_DEFAULT_EMBEDDING_ENDPOINT = "https://inference-api.nvidia.com/v1"
+_DEFAULT_EMBEDDING_DIMS = 1536
 
 
 class LettaLocalMemorySystem:
@@ -16,22 +23,49 @@ class LettaLocalMemorySystem:
         pip install letta
         letta server          # starts on http://localhost:8283 by default
 
-    To use a custom LLM/embedding backend, run `letta configure` before
-    starting the server and set LETTA_LLM_ENDPOINT / LETTA_EMBEDDING_ENDPOINT
-    in .env.
+    Environment variables (all optional):
+        LETTA_BASE_URL           - Letta server URL (default: http://localhost:8283)
+        LETTA_MODEL              - LLM model identifier
+        LETTA_EMBEDDING          - embedding model identifier
+        LETTA_LLM_ENDPOINT       - LLM inference base URL
+        LETTA_EMBEDDING_ENDPOINT - embedding inference base URL
+        NVIDIA_API_KEY / OPENAI_API_KEY - API key for inference endpoints
     """
 
     def __init__(
         self,
         user_id: Optional[str] = None,
-        base_url: str = "http://localhost:8283",
-        model: str = "openai/gpt-4.1-mini",
-        embedding: str = "openai/text-embedding-3-small",
+        base_url: Optional[str] = None,
+        model: Optional[str] = None,
+        embedding: Optional[str] = None,
+        llm_endpoint: Optional[str] = None,
+        embedding_endpoint: Optional[str] = None,
+        embedding_dims: int = _DEFAULT_EMBEDDING_DIMS,
     ):
-        self.client = Letta(base_url=base_url)
+        resolved_base_url = base_url or os.getenv("LETTA_BASE_URL", _DEFAULT_BASE_URL)
+        resolved_model = model or os.getenv("LETTA_MODEL", _DEFAULT_MODEL)
+        resolved_embedding = embedding or os.getenv("LETTA_EMBEDDING", _DEFAULT_EMBEDDING)
+        resolved_llm_endpoint = llm_endpoint or os.getenv("LETTA_LLM_ENDPOINT", _DEFAULT_LLM_ENDPOINT)
+        resolved_embedding_endpoint = embedding_endpoint or os.getenv("LETTA_EMBEDDING_ENDPOINT", _DEFAULT_EMBEDDING_ENDPOINT)
+        api_key = os.getenv("NVIDIA_API_KEY") or os.getenv("OPENAI_API_KEY") or "EMPTY"
+
+        llm_config = LLMConfig(
+            model=resolved_model,
+            model_endpoint_type="openai",
+            model_endpoint=resolved_llm_endpoint,
+            context_window=16000,
+        )
+        embedding_config = EmbeddingConfig(
+            embedding_model=resolved_embedding,
+            embedding_endpoint_type="openai",
+            embedding_endpoint=resolved_embedding_endpoint,
+            embedding_dim=embedding_dims,
+        )
+
+        self.client = Letta(base_url=resolved_base_url)
         self.agent_state = self.client.agents.create(
-            model=model,
-            embedding=embedding,
+            llm_config=llm_config,
+            embedding_config=embedding_config,
             memory_blocks=[
                 {"label": "human", "value": ""},
                 {"label": "persona", "value": "I am a self-improving superintelligence."},
@@ -39,7 +73,7 @@ class LettaLocalMemorySystem:
             tools=[],
         )
 
-    def add_chunk(self, chunk: str):
+    def add_chunk(self, chunk: str, user_id: Optional[str] = None):
         response = self.client.agents.messages.create(
             agent_id=self.agent_state.id,
             input="Remember this:\n" + chunk,
@@ -66,7 +100,7 @@ class LettaLocalMemorySystem:
 
         return parsed_messages if parsed_messages else None
 
-    def wrap_user_prompt(self, prompt: str):
+    def wrap_user_prompt(self, prompt: str, user_id: Optional[str] = None):
         response = self.client.agents.messages.create(
             agent_id=self.agent_state.id,
             input=(

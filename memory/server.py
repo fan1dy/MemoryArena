@@ -69,6 +69,11 @@ MEMORY_FACTORIES: Dict[str, Callable[[], object]] = {
     k: v for k, v in _ALL_FACTORIES.items() if v is not None
 }
 
+# Memory systems that hold a process-wide lock (e.g. local Qdrant) must be
+# instantiated only once and shared across all user_ids.
+SINGLETON_MEMORY_SYSTEMS = {"mem0-local", "mem0-local-g"}
+SHARED_INSTANCES: Dict[str, object] = {}
+
 
 # ---------- FastAPI wiring ----------
 app = FastAPI(title="Memory Agent Server")
@@ -106,7 +111,12 @@ def initialize(req: InitializeRequest):
         factory = MEMORY_FACTORIES.get(name)
         if factory is None:
             raise HTTPException(status_code=400, detail=f"Unsupported memory_system: {name}")
-        memory_system = factory()
+        if name in SINGLETON_MEMORY_SYSTEMS:
+            if name not in SHARED_INSTANCES:
+                SHARED_INSTANCES[name] = factory()
+            memory_system = SHARED_INSTANCES[name]
+        else:
+            memory_system = factory()
     MEMORY_SYSTEMS[req.user_id] = MemorySystemEntry(name=name, system=memory_system)
     return {"status": "ok", "user_id": req.user_id, "memory_system_name": name}
 
@@ -114,7 +124,7 @@ def initialize(req: InitializeRequest):
 @app.post("/memory/add")
 def add(req: AddRequest):
     memory_system = _get_memory(req.user_id, req.memory_system_name)
-    response = memory_system.add_chunk(req.chunk)
+    response = memory_system.add_chunk(req.chunk, user_id=req.user_id)
     outputs = {"status": "ok", "user_id": req.user_id}
     outputs['response'] = response
     return outputs
@@ -123,7 +133,7 @@ def add(req: AddRequest):
 @app.post("/memory/wrap_user_prompt")
 def wrap_user_prompt(req: QueryRequest):
     memory_system = _get_memory(req.user_id, req.memory_system_name)
-    prompt = memory_system.wrap_user_prompt(req.question)
+    prompt = memory_system.wrap_user_prompt(req.question, user_id=req.user_id)
     return {"status": "ok", "user_id": req.user_id, "prompt": prompt}
 
 if __name__ == "__main__":

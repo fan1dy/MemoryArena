@@ -154,6 +154,8 @@ class BaseAdapter:
     def action_parser(cls, action: str, action_format: ActionFormat) -> str:
         if action_format == ActionFormat.REACT:
             return cls.parse_react(action).action
+        if action_format == ActionFormat.REACT_REASONING:
+            return cls.parse_react(action).action
         if action_format == ActionFormat.FUNCTION_CALLING:
             return cls.parse_function_calling(action).action
         if action_format == ActionFormat.CODE_AS_ACTION:

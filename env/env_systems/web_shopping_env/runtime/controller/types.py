@@ -13,6 +13,7 @@ ConversationMessage = TypedDict(
 
 class ActionFormat(Enum):
     REACT = "react"
+    REACT_REASONING = "react_reasoning"
     FUNCTION_CALLING = "function_calling"
     CODE_AS_ACTION = "code_as_action"
 

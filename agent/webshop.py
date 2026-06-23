@@ -17,6 +17,13 @@ DEFAULT_SYSTEM_PROMPT = (
     "Do not add explanations, JSON, or multiple actions."
 )
 
+DEFAULT_SYSTEM_PROMPT_REASONING = (
+    "You are a WebShop shopping agent. "
+    "Think step by step before acting: briefly reason about what to do next, "
+    "then end your response with exactly one action on its own line in the format "
+    "search[...] or click[...]. Do not output multiple actions."
+)
+
 ACTION_PATTERN = re.compile(r"(search\[[^\]]*\]|click\[[^\]]*\])", re.IGNORECASE | re.DOTALL)
 
 
@@ -61,12 +68,19 @@ class WebShopAgent(BaseAgent):
         api_key: Optional[str] = None,
         base_url: Optional[str] = None,
         system_prompt: Optional[str] = None,
+        reasoning_effort: Optional[str] = None,
     ):
         super().__init__(model_name, temperature)
         self.max_tokens = max_tokens
         self.api_key = api_key or os.getenv("OPENAI_API_KEY", "")
         self.base_url = base_url or os.getenv("OPENAI_API_BASE") or os.getenv("OPENAI_BASE_URL")
-        self.system_prompt = system_prompt or DEFAULT_SYSTEM_PROMPT
+        if system_prompt:
+            self.system_prompt = system_prompt
+        elif reasoning_effort:
+            self.system_prompt = DEFAULT_SYSTEM_PROMPT_REASONING
+        else:
+            self.system_prompt = DEFAULT_SYSTEM_PROMPT
+        self.reasoning_effort = reasoning_effort
         self.client = OpenAI(api_key=self.api_key, base_url=self.base_url)
         self.turns: List[Dict[str, Any]] = []
         self._last_raw_output: Optional[str] = None
@@ -132,6 +146,8 @@ class WebShopAgent(BaseAgent):
         if self.max_tokens is not None:
             key = "max_completion_tokens" if self._use_completion_tokens_param() else "max_tokens"
             params[key] = self.max_tokens
+        if self.reasoning_effort is not None:
+            params["reasoning_effort"] = self.reasoning_effort
 
         for attempt in range(1, max_retries + 1):
             try:

@@ -287,6 +287,31 @@ def warm_upstream_env(
         except Exception:
             pass
 
+    # Reuse any env already loaded in the server's pool before triggering
+    # a new /create, which blocks the event loop for ~2 hours while loading
+    # the 1.18M item search index.
+    if reuse_env:
+        try:
+            list_response = requests.get(
+                base_url.rstrip("/") + "/list_envs",
+                timeout=min(timeout_seconds, 30.0),
+            )
+            if list_response.status_code == 200:
+                existing_ids = list_response.json()
+                if existing_ids:
+                    existing_id = existing_ids[0]
+                    verify = requests.get(
+                        base_url.rstrip("/") + f"/observation?env_idx={existing_id}",
+                        timeout=min(timeout_seconds, 30.0),
+                    )
+                    if verify.status_code == 200:
+                        printer(f"[shopping-bootstrap] Reusing existing upstream env_id={existing_id}")
+                        if cache_path is not None:
+                            save_env_id(existing_id, cache_path)
+                        return existing_id
+        except Exception:
+            pass
+
     printer("[shopping-bootstrap] Priming upstream WebShop env via /create")
     response = requests.post(base_url.rstrip("/") + "/create", timeout=timeout_seconds)
     response.raise_for_status()

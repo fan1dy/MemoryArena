@@ -7,6 +7,7 @@ import os
 import time
 import traceback
 import uuid
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
@@ -232,12 +233,15 @@ def load_config(config_path: Path) -> argparse.Namespace:
         temperature=agent_cfg.get("temperature", 0.0),
         max_tokens=agent_cfg.get("max_tokens", 512),
         context_window=agent_cfg.get("context_window"),
+        reasoning_effort=agent_cfg.get("reasoning_effort"),
+        system_prompt=agent_cfg.get("system_prompt"),
         api_key=api_key,
         model_base_url=base_url,
         backend=agent_cfg.get("backend", "openai"),
         memory_system=memory_cfg.get("memory_system_name", "none"),
         memory_server_url=memory_cfg.get("server_url") or memory_cfg.get("base_url") or "http://0.0.0.0:8000",
         memory_timeout=int(memory_cfg.get("timeout", 300)),
+        memory_namespace=memory_cfg.get("memory_namespace"),
         use_step_memory=_as_bool(memory_cfg.get("use_step_memory"), False),
         env_name=env_cfg.get("env_name", "webshop"),
         env_server_url=env_cfg.get("env_server_url") or env_cfg.get("base_url") or "http://0.0.0.0:8005",
@@ -451,7 +455,9 @@ def build_env_config(args: argparse.Namespace, task_file: Path) -> Dict[str, Any
 
 def task_memory_user_id(args: argparse.Namespace, task_def: Dict[str, Any], task_file: Path) -> str:
     task_key = task_def.get("task_id") or task_file.stem
-    return f"shopping::{task_key}::{args.model_name}::{args.memory_system}"
+    base = f"shopping::{task_key}::{args.model_name}::{args.memory_system}"
+    namespace = getattr(args, "memory_namespace", None)
+    return f"{base}::{namespace}" if namespace else base
 
 
 def load_latest_task_results(result_json_dir: Path, task_file: Path) -> Optional[Dict[str, Any]]:
@@ -816,13 +822,16 @@ def build_resume_state(
 def build_memory_entries(agent: WebShopAgent, task_text: str, turns: List[Dict[str, Any]]) -> List[str]:
     entries: List[str] = []
     for turn in turns:
+        action = turn.get("action", "")
+        if not action:
+            continue
         obs = turn.get("observation") or {}
         obs_state = obs.get("state", "") if isinstance(obs, dict) else str(obs)
         entry = (
             f"Step {turn.get('turn_idx', '')}:\n"
-            f"User Instruction: {turn.get('prompt_source', '')}\n"
-            f"Agent Action: {turn.get('action', '')}\n"
-            f"Env Observation: {obs_state}\n"
+            f"Task: {task_text[:500]}\n"
+            f"Agent Action: {action}\n"
+            f"Env Observation: {obs_state[:300]}\n"
             f"Done: {turn.get('done')}"
         )
         entries.append(entry)
@@ -900,6 +909,8 @@ def run_episode(
         max_tokens=args.max_tokens,
         api_key=args.api_key,
         base_url=args.model_base_url,
+        reasoning_effort=getattr(args, "reasoning_effort", None),
+        system_prompt=getattr(args, "system_prompt", None),
     )
     agent.reset()
 
@@ -1302,6 +1313,8 @@ def main() -> None:
     parser.add_argument("--restart-upstream-env", action=argparse.BooleanOptionalAction, default=None)
     parser.add_argument("--clear-env-id-cache-on-restart", action=argparse.BooleanOptionalAction, default=None)
     parser.add_argument("--clear-python-cache-on-restart", action=argparse.BooleanOptionalAction, default=None)
+    parser.add_argument("--workers", type=int, default=1,
+                        help="Number of task files to process in parallel (default: 1)")
     raw_args = parser.parse_args()
 
     args = load_config(resolve_path(raw_args.config) or Path(raw_args.config))
@@ -1322,20 +1335,43 @@ def main() -> None:
             )
             ensure_upstream_bootstrap(args)
 
-        logger.info("=== category: %s | %d task(s) ===", category, len(task_files))
+        logger.info("=== category: %s | %d task(s) | workers=%d ===", category, len(task_files), raw_args.workers)
         cat_results: List[Dict[str, Any]] = []
-        for task_file in task_files:
+
+        def _run_task(task_file: Path) -> Dict[str, Any]:
             logger.info("--- processing task file: %s ---", task_file.name)
-            try:
-                result = process_task_file(args, task_file, dirs)
-            except LLMFatalError as exc:
-                logger.exception("Fatal LLM error while processing %s", task_file.name)
-                raise RuntimeError(
-                    f"Fatal LLM error while processing {task_file.name}: {exc}"
-                ) from exc
+            result = process_task_file(args, task_file, dirs)
             logger.info("task %s done: overall_success=%s", task_file.name, result.get("overall_success"))
-            cat_results.append(result)
-            all_results.append(result)
+            return result
+
+        if raw_args.workers <= 1:
+            for task_file in task_files:
+                try:
+                    result = _run_task(task_file)
+                except LLMFatalError as exc:
+                    logger.exception("Fatal LLM error while processing %s", task_file.name)
+                    raise RuntimeError(
+                        f"Fatal LLM error while processing {task_file.name}: {exc}"
+                    ) from exc
+                cat_results.append(result)
+                all_results.append(result)
+        else:
+            with ThreadPoolExecutor(max_workers=raw_args.workers) as pool:
+                future_to_file = {pool.submit(_run_task, tf): tf for tf in task_files}
+                for future in as_completed(future_to_file):
+                    tf = future_to_file[future]
+                    try:
+                        result = future.result()
+                    except LLMFatalError as exc:
+                        logger.exception("Fatal LLM error while processing %s", tf.name)
+                        raise RuntimeError(
+                            f"Fatal LLM error while processing {tf.name}: {exc}"
+                        ) from exc
+                    except Exception:
+                        logger.exception("Error processing task file %s", tf.name)
+                        continue
+                    cat_results.append(result)
+                    all_results.append(result)
 
         if args.save_metrics:
             summary_path = dirs["artifact_root"] / "summary.json"

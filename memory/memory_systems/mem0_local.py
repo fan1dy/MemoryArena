@@ -97,17 +97,17 @@ class Mem0LocalMemorySystem:
         self.user_id = resolved_user_id
         self.enable_graph = enable_graph
 
-    def add_chunk(self, chunk: str):
+    def add_chunk(self, chunk: str, user_id: Optional[str] = None):
         self.client.add(
             [
                 {"role": "user", "content": chunk},
                 {"role": "assistant", "content": "Thanks for the information! I will remember this."},
             ],
-            user_id=self.user_id,
+            user_id=user_id or self.user_id,
         )
 
-    def wrap_user_prompt(self, prompt: str):
-        results = self.client.search(prompt.lower(), filters={"user_id": self.user_id})
+    def wrap_user_prompt(self, prompt: str, user_id: Optional[str] = None):
+        results = self.client.search(prompt.lower(), filters={"user_id": user_id or self.user_id})
         memory_context_lines = ["<memory_context>"]
         entries = results if isinstance(results, list) else results.get("results", [])
         for result in entries:

@@ -128,6 +128,16 @@ class WebshopAdapter(BaseAdapter):
             ),
             ConversationMessage({"from": "gpt", "loss": False, "value": "Ok."}),
         ),
+        ActionFormat.REACT_REASONING: (
+            ConversationMessage(
+                {
+                    "from": "human",
+                    "loss": None,
+                    "value": f"You are web shopping.\nI will give you instructions about what to do.\nYou have to follow the instructions.\nEvery round I will give you an observation and a list of available actions, you have to respond an action based on the state and instruction.\nYou can use search action if search is available.\nYou can click one of the buttons in clickables.\nKeywords in search are up to you, but the value in click must be a value in the list of available actions.\nRemember that your keywords in search should be carefully designed.\nThink step by step before acting. Write your reasoning, then end with exactly one action on its own line in the format click[...] or search[...].\n\n\n {IMPORTANT_INSTRUCTIONS}",
+                }
+            ),
+            ConversationMessage({"from": "gpt", "loss": False, "value": "Ok."}),
+        ),
         ActionFormat.FUNCTION_CALLING: (
             ConversationMessage(
                 {
@@ -635,7 +645,7 @@ class WebshopPlusEnvClient(WebshopEnvClient):
         self._track_price_from_obs(current_obs)
 
         # Execute action in base environment
-        base_output = super().step(action)
+        base_output = super().step(action_only)
         step_output = StepOutput(
             state=base_output.state,
             reward=0.0,  # No reward returned in this variant
@@ -783,7 +793,12 @@ class WebshopPlusEnvClient(WebshopEnvClient):
                 action = parts[1].strip()
                 return action
 
-        # If no "Action:" found, return original text (might be already just the action)
+        # For react_reasoning format: extract last search[...] or click[...] from text
+        match = re.search(r'(?:search|click)\[[^\]]*\]', text)
+        if match:
+            return match.group(0)
+
+        # If no action found, return original text (might be already just the action)
         return text.strip()
 
     def _record_agent_output(self, raw_text: str, action_only: str) -> None:
